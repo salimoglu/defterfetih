@@ -202,7 +202,7 @@
         <div class="lgit"><div class="lgsw" style="background:#ffd700;"></div>⭐ Joker (+3)</div>
         <div class="lgit"><div class="lgsw" style="background:#ff69b4;"></div>⚔️ Gasp</div>
         <div class="lgit"><div class="lgsw" style="background:#888;"></div>🧱 Duvar</div>
-        <div class="lgit" style="opacity:.7;">↗ 8 yön</div>
+        <div class="lgit" style="opacity:.7;">🏰 ülke gibi büyü</div>
         <div class="lgit" id="emptyhint"></div>
       </div>
       <div id="gw"><canvas id="gc"></canvas></div>
@@ -229,6 +229,8 @@
         <li>Her oyuncu köşesindeki 3×3 üsle başlar.</li>
         <li>Sıran gelince zar at: <b>1–9 hamle</b> kazanırsın.</li>
         <li>Sadece kendi bölgene <b>8 yönden komşu</b> boş kareleri alabilirsin.</li>
+        <li>Bölgen <b>ülke gibi</b> kalınlaşır: ip/yılan gibi tek karelik hat uzatamazsın. Bir kareyi almak için en az <b>2 komşu kareye</b> yaslanman gerekir.</li>
+        <li>Zar attığın turda yalnızca <b>o anki sınırı</b> doldurursun; yeni alınan kareler bir sonraki tura kadar daha derine kapı açmaz.</li>
         <li><b>⭐ Joker</b> +3 hamle verir.</li>
         <li><b>⚔️ Gasp</b> komşu bir rakip kareyi çalmanı sağlar (istersen geçebilirsin).</li>
         <li><b>🧱 Duvar</b> geçilemez, kare sayılmaz.</li>
@@ -272,7 +274,7 @@
     let players = [], grid = [], specials = {};
     let COLS, ROWS, curP = 0, mvLeft = 0, rolled = false, gameActive = false, raidMode = false;
     let botFlags = [];
-    let highlighted = new Set(), raidHL = new Set();
+    let highlighted = new Set(), raidHL = new Set(), turnRoots = null;
     let hoverCell = null, flashes = [], particles = [];
     let cs = 12, autoEndTimer = 0, botTimer = 0, raf = 0;
     let audioCtx = null;
@@ -412,7 +414,7 @@
       });
       placeSpecials();
       curP = 0; mvLeft = 0; rolled = false; gameActive = true; raidMode = false;
-      highlighted = new Set(); raidHL = new Set(); flashes = []; particles = []; hoverCell = null;
+      highlighted = new Set(); raidHL = new Set(); turnRoots = null; flashes = []; particles = []; hoverCell = null;
       showScreen('s-game');
       updateHUD(); updateScores(); resetDice();
       $('rollbtn').disabled = false;
@@ -442,14 +444,41 @@
       for (let i = 0; i < Math.floor(tot * 0.018); i++) { const rc = rndE(); if (rc) specials[rc[0] + '_' + rc[1]] = T_RAID; }
     }
 
-    function getFrontier(p) {
+    function ownedSet(p) {
+      const s = new Set();
+      for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (grid[r][c] === p) s.add(r + '_' + c);
+      return s;
+    }
+    function countOwnNeighbors(r, c, p) {
+      let n = 0;
+      for (const [dr, dc] of DIRS) {
+        const nr = r + dr, nc = c + dc;
+        if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && grid[nr][nc] === p) n++;
+      }
+      return n;
+    }
+    function isAdjToSet(r, c, keys) {
+      for (const [dr, dc] of DIRS) {
+        const nr = r + dr, nc = c + dc;
+        if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && keys.has(nr + '_' + nc)) return true;
+      }
+      return false;
+    }
+    function snapshotRoots(p) { turnRoots = ownedSet(p); }
+
+    function getFrontier(p, roots) {
+      const origin = roots || ownedSet(p);
       const seen = new Set(), res = [];
-      for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (grid[r][c] === p) {
+      for (const key of origin) {
+        const u = key.indexOf('_');
+        const r = +key.slice(0, u), c = +key.slice(u + 1);
         for (const [dr, dc] of DIRS) {
           const nr = r + dr, nc = c + dc;
           if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) continue;
           const k = nr + '_' + nc;
-          if (!seen.has(k) && grid[nr][nc] < 0 && specials[k] !== T_WALL) { seen.add(k); res.push([nr, nc]); }
+          if (seen.has(k) || grid[nr][nc] >= 0 || specials[k] === T_WALL) continue;
+          if (countOwnNeighbors(nr, nc, p) < 2) continue;
+          seen.add(k); res.push([nr, nc]);
         }
       }
       return res;
@@ -466,7 +495,16 @@
       }
       return res;
     }
-    function hlFrontier() { highlighted = new Set(getFrontier(curP).map(([r, c]) => r + '_' + c)); raidHL = new Set(); }
+    function hlFrontier() { highlighted = new Set(getFrontier(curP, turnRoots).map(([r, c]) => r + '_' + c)); raidHL = new Set(); }
+    function continueOrCloseLayer() {
+      hlFrontier();
+      if (mvLeft > 0 && highlighted.size === 0) {
+        showToast('Sınır doldu — ülke bu tur daha derine inemez');
+        afterMovesGone();
+        return false;
+      }
+      return true;
+    }
     function hlRaid() { raidHL = new Set(getRaidTargets(curP).map(([r, c]) => r + '_' + c)); highlighted = new Set(); }
 
     function updateHUD() {
@@ -522,7 +560,7 @@
           const r = Math.ceil(Math.random() * 9); mvLeft = r; renderPips(r); $('dnum').textContent = r;
           $('mvtxt').textContent = r + ' hamle hakkın var';
           $('endbtn').style.display = '';
-          hlFrontier(); updateHUD(); drawGrid();
+          snapshotRoots(curP); hlFrontier(); updateHUD(); drawGrid();
         }
       }, 55);
     }
@@ -532,7 +570,7 @@
       players[curP].raidPower = false; raidMode = false;
       $('skipraid').style.display = 'none';
       if (mvLeft <= 0) afterMovesGone();
-      else hlFrontier();
+      else continueOrCloseLayer();
       updateHUD();
       drawGrid();
     }
@@ -545,7 +583,7 @@
       $('rollbtn').disabled = false;
       $('endbtn').style.display = 'none';
       $('skipraid').style.display = 'none';
-      highlighted = new Set(); raidHL = new Set(); resetDice();
+      highlighted = new Set(); raidHL = new Set(); turnRoots = null; resetDice();
       let next = (curP + 1) % pc, tries = 0;
       while (getFrontier(next).length === 0 && tries < pc) { next = (next + 1) % pc; tries++; }
       if (isFull() || tries >= pc) { endGame(); return; }
@@ -725,14 +763,22 @@
         showToast('⚔️ Gasp edildi!');
         updateScores(); updateMovesUI();
         if (isFull()) { endGame(); return; }
-        if (mvLeft <= 0) afterMovesGone(); else hlFrontier();
+        if (mvLeft <= 0) afterMovesGone(); else continueOrCloseLayer();
         updateHUD();
         drawGrid();
         return;
       }
 
       if (mvLeft <= 0) { showToast('Hamle hakkın bitti'); return; }
-      if (!highlighted.has(k)) { showToast('Sadece sınır kareler!'); sfx('error'); return; }
+      if (!highlighted.has(k)) {
+        const own = countOwnNeighbors(r, c, curP);
+        const adjNow = isAdjToSet(r, c, ownedSet(curP));
+        if (adjNow && own < 2) showToast('İp gibi uzayamazsın — en az 2 komşuya yaslan');
+        else if (turnRoots && adjNow && !isAdjToSet(r, c, turnRoots)) showToast('Bu tur yalnızca mevcut sınırı doldur');
+        else showToast('Sadece sınır kareler!');
+        sfx('error');
+        return;
+      }
 
       const sp = specials[k];
       delete specials[k];
@@ -766,7 +812,7 @@
       }
 
       if (mvLeft <= 0) afterMovesGone();
-      else hlFrontier();
+      else continueOrCloseLayer();
       updateHUD();
       drawGrid();
     }
@@ -789,6 +835,8 @@
     function scoreCell(r, c, pers) {
       let s = 0;
       const sp = specials[r + '_' + c];
+      const ownN = countOwnNeighbors(r, c, curP);
+      s += ownN * 3;
       const rand = difficulty === 'easy' ? Math.random() * 14 : difficulty === 'hard' ? Math.random() * 1.2 : Math.random() * 3;
       if (pers === 2) {
         if (sp === T_JOKER) s += 20; if (sp === T_RAID) s += 15; s += rand;
@@ -801,18 +849,18 @@
         s += rand;
       } else if (pers === 1) {
         if (sp === T_JOKER) s += 10; if (sp === T_RAID) s += 5;
-        let own = 0, en = 0;
+        let en = 0;
         for (const [dr, dc] of DIRS) {
           const nr = r + dr, nc = c + dc;
           if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS) {
-            const cell = grid[nr][nc]; if (cell === curP) own++; else if (cell >= 0) en++;
+            const cell = grid[nr][nc]; if (cell >= 0 && cell !== curP) en++;
           }
         }
-        s += own * 2 - en * 1.5 + Math.abs(r - ROWS / 2) * 0.3 + rand;
+        s += ownN * 2 - en * 1.5 + Math.abs(r - ROWS / 2) * 0.3 + rand;
       } else {
         if (sp === T_JOKER) s += 5; if (sp === T_RAID) s += 5; s += Math.random() * 10 + rand;
       }
-      if (difficulty === 'hard') s += newFrontierGain(r, c, curP) * 1.4;
+      if (difficulty === 'hard') s += newFrontierGain(r, c, curP) * 0.4;
       return s;
     }
 
@@ -829,6 +877,7 @@
           const result = Math.ceil(Math.random() * 9);
           mvLeft = result; renderPips(result); $('dnum').textContent = result;
           $('mvtxt').textContent = result + ' hamle'; $('endbtn').style.display = '';
+          snapshotRoots(curP);
           const pers = players[curP].pers;
           const delay = pers === 3 ? 140 : pers === 0 ? 320 : 460;
           botTimer = setTimeout(botMove, delay);
@@ -864,7 +913,7 @@
         return;
       }
 
-      const frontier = getFrontier(curP);
+      const frontier = getFrontier(curP, turnRoots);
       if (frontier.length === 0) { botTimer = setTimeout(endTurn, 280); return; }
       let best = null, bestS = -Infinity;
       for (const [r, c] of frontier) {
