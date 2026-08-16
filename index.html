@@ -539,7 +539,11 @@
     function continueOrCloseLayer() {
       hlFrontier();
       if (mvLeft > 0 && highlighted.size === 0) {
-        showToast('Sınır doldu — ülke bu tur daha derine inemez');
+        snapshotRoots(curP);
+        hlFrontier();
+      }
+      if (mvLeft > 0 && highlighted.size === 0) {
+        showToast('Genişleyecek kare kalmadı');
         afterMovesGone();
         return false;
       }
@@ -641,6 +645,7 @@
     }
 
     function afterMovesGone() {
+      mvLeft = 0;
       highlighted = new Set(); raidHL = new Set();
       $('mvtxt').textContent = 'Hamle hakkın bitti';
       $('endbtn').style.display = '';
@@ -954,7 +959,11 @@
         return;
       }
 
-      const frontier = getFrontier(curP, turnRoots);
+      let frontier = getFrontier(curP, turnRoots);
+      if (frontier.length === 0 && mvLeft > 0) {
+        snapshotRoots(curP);
+        frontier = getFrontier(curP, turnRoots);
+      }
       if (frontier.length === 0) { botTimer = setTimeout(endTurn, 280); return; }
       let best = null, bestS = -Infinity;
       for (const [r, c] of frontier) {
