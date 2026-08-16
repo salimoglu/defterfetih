@@ -261,7 +261,7 @@
       <ol class="rules">
         <li>Her oyuncu köşesindeki 3×3 üsle başlar.</li>
         <li>Sıran gelince zar at: <b>1–9 hamle</b> kazanırsın.</li>
-        <li>Sadece kendi bölgene <b>kenardan komşu</b> ve en az <b>2 kendi kareye yaslanan</b> boş kareleri alabilirsin. Sınırındaki uygun karelerden istediğini seçersin; ince ip/yılan uzatılamaz.</li>
+        <li>Sadece kendi bölgene <b>kenardan komşu</b> ve en az <b>2 kendi kareye yaslanan</b> boş kareleri alabilirsin. Zar attığın turda yalnızca <b>o anki sınırı</b> doldurursun; aynı turda daha derine inemezsin. İnce ip/yılan uzatılamaz.</li>
         <li><b>⭐ Joker</b> +3 hamle verir.</li>
         <li><b>⚔️ Gasp</b> komşu bir rakip kareyi çalmanı sağlar; <b>kale gasp edilemez</b>.</li>
         <li><b>⛰ Dağ</b> zirve gibi durur; almak <b>2 hak</b> ister, 2 puan sayılır.</li>
@@ -288,7 +288,7 @@
   <div id="toast"></div>
 
   <script>
-    const VERSION = '1.5.3';
+    const VERSION = '1.5.4';
     const PCOLS = [
       { f: '#e05a2b', s: '#a03010', l: 'rgba(224,90,43,0.28)' },
       { f: '#2b7ae0', s: '#1050a0', l: 'rgba(43,122,224,0.28)' },
@@ -577,8 +577,8 @@
       btn.textContent = castleMode ? '↩ Kale iptal' : '🏰 Kale Kur (3)';
     }
 
-    function getFrontier(p) {
-      const origin = ownedSet(p);
+    function getFrontier(p, roots) {
+      const origin = roots || ownedSet(p);
       const seen = new Set(), res = [];
       for (const key of origin) {
         const u = key.indexOf('_');
@@ -608,7 +608,7 @@
     }
     function hlFrontier() {
       highlighted = new Set();
-      for (const [r, c] of getFrontier(curP)) {
+      for (const [r, c] of getFrontier(curP, turnRoots)) {
         if (captureCostAt(r, c) <= mvLeft) highlighted.add(r + '_' + c);
       }
       raidHL = new Set();
@@ -622,7 +622,7 @@
       castleMode = false;
       hlFrontier();
       if (mvLeft > 0 && highlighted.size === 0 && siegeHL.size === 0 && !extraActionsLeft()) {
-        showToast('Genişleyecek kare kalmadı');
+        showToast('Bu tur sınır doldu — daha derine inemezsin');
         afterMovesGone();
         return false;
       }
@@ -635,7 +635,7 @@
       $('cname').textContent = p.name + (p.isBot ? ' 🤖' : '');
       $('cname').style.color = p.col.f;
       $('turnhint').textContent = rolled
-        ? (raidMode ? 'gasp hedefi seç' : castleMode ? 'kale kuracağın kareyi seç' : (mvLeft > 0 ? 'sınır kareyi seç' : 'sıra bitti'))
+        ? (raidMode ? 'gasp hedefi seç' : castleMode ? 'kale kuracağın kareyi seç' : (mvLeft > 0 ? 'bu turki sınırı doldur' : 'sıra bitti'))
         : 'sırası · zar at';
     }
     function countEmpty() {
@@ -1000,6 +1000,7 @@
           return;
         }
         if (castles[k] && grid[r][c] >= 0 && grid[r][c] !== curP) showToast('Kale için 3 komşu kuşatma ve 2 hak gerekir');
+        else if (turnRoots && isAdjToSet(r, c, ownedSet(curP)) && !isAdjToSet(r, c, turnRoots)) showToast('Bu tur daha derine inemezsin');
         else if (!canClaim(r, c, curP) && isAdjToSet(r, c, ownedSet(curP))) showToast('Yılan olmaz: en az 2 komşu kareye yaslan');
         else showToast('Sadece sınır kareler!');
         sfx('error');
@@ -1161,10 +1162,7 @@
         return;
       }
 
-      let frontier = getFrontier(curP).filter(([r, c]) => captureCostAt(r, c) <= mvLeft);
-      if (frontier.length === 0 && mvLeft > 0) {
-        frontier = getFrontier(curP).filter(([r, c]) => captureCostAt(r, c) <= mvLeft);
-      }
+      let frontier = getFrontier(curP, turnRoots).filter(([r, c]) => captureCostAt(r, c) <= mvLeft);
       if (frontier.length === 0) {
         if (mvLeft >= 3 && (pers === 1 || difficulty === 'hard')) {
           const spots = fortifiableCells(curP);
