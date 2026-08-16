@@ -221,12 +221,14 @@
           <div class="mvtxt" id="mvtxt"></div>
           <button class="endbtn" id="endbtn" style="display:none">Sırayı Bitir ↩</button>
           <button class="skipbtn" id="skipraid" style="display:none">Gaspı Geç</button>
+          <button class="skipbtn" id="castlebtn" style="display:none">🏰 Kale Kur (3)</button>
         </div>
       </div>
       <div class="legend">
         <div class="lgit"><div class="lgsw" style="background:#ffd700;"></div>⭐ Joker (+3)</div>
         <div class="lgit"><div class="lgsw" style="background:#ff69b4;"></div>⚔️ Gasp</div>
-        <div class="lgit"><div class="lgsw" style="background:#888;"></div>🧱 Duvar</div>
+        <div class="lgit"><div class="lgsw" style="background:#c4b49a;"></div>⛰ Dağ (2)</div>
+        <div class="lgit"><div class="lgsw" style="background:#e8d9a0;"></div>🏰 Kale (3 / kuşatma 2)</div>
         <div class="lgit" style="opacity:.7;">🏰 ülke gibi büyü</div>
         <div class="lgit" id="emptyhint"></div>
       </div>
@@ -257,9 +259,10 @@
         <li>Bölgen <b>ülke gibi</b> kalınlaşır: ip/yılan gibi tek karelik hat uzatamazsın. Bir kareyi almak için en az <b>2 komşu kareye</b> yaslanman gerekir.</li>
         <li>Zar attığın turda yalnızca <b>o anki sınırı</b> doldurursun; yeni alınan kareler bir sonraki tura kadar daha derine kapı açmaz.</li>
         <li><b>⭐ Joker</b> +3 hamle verir.</li>
-        <li><b>⚔️ Gasp</b> komşu bir rakip kareyi çalmanı sağlar (istersen geçebilirsin).</li>
-        <li><b>🧱 Duvar</b> geçilemez, kare sayılmaz.</li>
-        <li>Tahta dolunca (veya kimse genişleyemeyince) en çok karesi olan kazanır.</li>
+        <li><b>⚔️ Gasp</b> komşu bir rakip kareyi çalmanı sağlar; <b>kale gasp edilemez</b>.</li>
+        <li><b>⛰ Dağ</b> zirve gibi durur; almak <b>2 hak</b> ister, 2 puan sayılır.</li>
+        <li><b>🏰 Kale</b> kendi karenize <b>3 hak</b>la kurulur. Düşürmek için kaleyi en az <b>3 kareyle kuşatıp 2 hak</b> harcaman gerekir; kale sana geçer.</li>
+        <li>Tahta dolunca (veya kimse genişleyemeyince) en çok <b>puanı</b> olan kazanır. Dağ 2, kale +2 puan.</li>
       </ol>
       <button class="bigbtn" id="helpok" style="margin-top:10px;">Anladım</button>
     </div>
@@ -288,7 +291,7 @@
     ];
     const PNAMES = ['Sen', 'Mavi', 'Yeşil', 'Mor'];
     const PERS = ['🗡️ Agresif', '🛡️ Savunmacı', '⭐ Fırsatçı', '🎲 Kaotik'];
-    const T_WALL = 100, T_JOKER = 101, T_RAID = 102;
+    const T_WALL = 100, T_PEAK = 100, T_JOKER = 101, T_RAID = 102;
     const DIRS = [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[-1,1],[1,-1],[1,1]];
     const PIP_POS = [[-12,-12],[0,-12],[12,-12],[-12,0],[0,0],[12,0],[-12,12],[0,12],[12,12]];
     const PIP_LAY = { 1:[4], 2:[0,8], 3:[0,4,8], 4:[0,2,6,8], 5:[0,2,4,6,8], 6:[0,2,3,5,6,8], 7:[0,2,3,4,5,6,8], 8:[0,1,2,3,5,6,7,8], 9:[0,1,2,3,4,5,6,7,8] };
@@ -299,7 +302,8 @@
     let players = [], grid = [], specials = {};
     let COLS, ROWS, curP = 0, mvLeft = 0, rolled = false, gameActive = false, raidMode = false;
     let botFlags = [];
-    let highlighted = new Set(), raidHL = new Set(), turnRoots = null;
+    let highlighted = new Set(), raidHL = new Set(), siegeHL = new Set(), castleHL = new Set(), turnRoots = null;
+    let terrain = {}, castles = {}, castleMode = false;
     let hoverCell = null, flashes = [], particles = [];
     let cs = 12, autoEndTimer = 0, botTimer = 0, raf = 0;
     let audioCtx = null;
@@ -414,6 +418,21 @@
     $('rollbtn').addEventListener('click', () => { ensureAudio(); doRoll(); });
     $('endbtn').addEventListener('click', () => { if (!players[curP]?.isBot) endTurn(); });
     $('skipraid').addEventListener('click', skipRaid);
+    $('castlebtn').addEventListener('click', () => {
+      if (!gameActive || !rolled || players[curP]?.isBot || raidMode) return;
+      if (castleMode) {
+        castleMode = false; castleHL = new Set();
+        updateActionButtons(); updateHUD(); drawGrid();
+        return;
+      }
+      if (mvLeft < 3) { showToast('Kale için 3 hak gerekir'); return; }
+      if (!fortifiableCells(curP).length) { showToast('Kalelenecek kare yok'); return; }
+      castleMode = true;
+      hlFrontier();
+      updateHUD();
+      drawGrid();
+      showToast('Kaleyi kendi karene koy');
+    });
 
     function bases() {
       if (pc === 3) {
@@ -447,18 +466,19 @@
       COLS = 0; ROWS = 0;
       chooseBoard();
       grid = Array.from({ length: ROWS }, () => new Int16Array(COLS).fill(-1));
-      specials = {};
+      specials = {}; terrain = {}; castles = {}; castleMode = false;
       bases().forEach(([r0, c0], p) => {
         if (p < pc) for (let dr = 0; dr < 3; dr++) for (let dc = 0; dc < 3; dc++) grid[r0 + dr][c0 + dc] = p;
       });
       placeSpecials();
       curP = 0; mvLeft = 0; rolled = false; gameActive = true; raidMode = false;
-      highlighted = new Set(); raidHL = new Set(); turnRoots = null; flashes = []; particles = []; hoverCell = null;
+      highlighted = new Set(); raidHL = new Set(); siegeHL = new Set(); castleHL = new Set(); turnRoots = null; flashes = []; particles = []; hoverCell = null;
       showScreen('s-game');
       updateHUD(); updateScores(); resetDice();
       $('rollbtn').disabled = false;
       $('endbtn').style.display = 'none';
       $('skipraid').style.display = 'none';
+      $('castlebtn').style.display = 'none';
       startLoop();
       drawGrid();
       requestAnimationFrame(() => drawGrid());
@@ -479,7 +499,7 @@
         return null;
       }
       const tot = ROWS * COLS;
-      for (let i = 0; i < Math.floor(tot * 0.055); i++) { const rc = rndE(); if (rc) specials[rc[0] + '_' + rc[1]] = T_WALL; }
+      for (let i = 0; i < Math.floor(tot * 0.055); i++) { const rc = rndE(); if (rc) { const k = rc[0] + '_' + rc[1]; specials[k] = T_PEAK; terrain[k] = 'peak'; } }
       for (let i = 0; i < Math.floor(tot * 0.022); i++) { const rc = rndE(); if (rc) specials[rc[0] + '_' + rc[1]] = T_JOKER; }
       for (let i = 0; i < Math.floor(tot * 0.018); i++) { const rc = rndE(); if (rc) specials[rc[0] + '_' + rc[1]] = T_RAID; }
     }
@@ -506,6 +526,40 @@
     }
     function snapshotRoots(p) { turnRoots = ownedSet(p); }
 
+    function captureCostAt(r, c) {
+      const k = r + '_' + c;
+      if (grid[r][c] < 0 && specials[k] === T_PEAK) return 2;
+      if (grid[r][c] >= 0 && castles[k]) return 2;
+      return 1;
+    }
+    function getSiegeTargets(p) {
+      const res = [];
+      for (const k of Object.keys(castles)) {
+        const u = k.indexOf('_'), r = +k.slice(0, u), c = +k.slice(u + 1);
+        if (grid[r][c] >= 0 && grid[r][c] !== p && countOwnNeighbors(r, c, p) >= 3) res.push([r, c]);
+      }
+      return res;
+    }
+    function fortifiableCells(p) {
+      const res = [];
+      for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+        if (grid[r][c] === p && !castles[r + '_' + c]) res.push([r, c]);
+      }
+      return res;
+    }
+    function extraActionsLeft() {
+      if (mvLeft >= 2 && getSiegeTargets(curP).some(([r, c]) => captureCostAt(r, c) <= mvLeft)) return true;
+      if (mvLeft >= 3 && fortifiableCells(curP).length) return true;
+      return false;
+    }
+    function updateActionButtons() {
+      const btn = $('castlebtn');
+      if (!btn) return;
+      const show = gameActive && rolled && !raidMode && mvLeft >= 3 && fortifiableCells(curP).length > 0;
+      btn.style.display = show || castleMode ? '' : 'none';
+      btn.textContent = castleMode ? '↩ Kale iptal' : '🏰 Kale Kur (3)';
+    }
+
     function getFrontier(p, roots) {
       const origin = roots || ownedSet(p);
       const seen = new Set(), res = [];
@@ -516,7 +570,7 @@
           const nr = r + dr, nc = c + dc;
           if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) continue;
           const k = nr + '_' + nc;
-          if (seen.has(k) || grid[nr][nc] >= 0 || specials[k] === T_WALL) continue;
+          if (seen.has(k) || grid[nr][nc] >= 0) continue;
           if (countOwnNeighbors(nr, nc, p) < 2) continue;
           seen.add(k); res.push([nr, nc]);
         }
@@ -530,44 +584,63 @@
           const nr = r + dr, nc = c + dc;
           if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) continue;
           const k = nr + '_' + nc, cell = grid[nr][nc];
-          if (!seen.has(k) && cell >= 0 && cell !== p) { seen.add(k); res.push([nr, nc]); }
+          if (!seen.has(k) && cell >= 0 && cell !== p && !castles[k]) { seen.add(k); res.push([nr, nc]); }
         }
       }
       return res;
     }
-    function hlFrontier() { highlighted = new Set(getFrontier(curP, turnRoots).map(([r, c]) => r + '_' + c)); raidHL = new Set(); }
+    function hlFrontier() {
+      highlighted = new Set();
+      for (const [r, c] of getFrontier(curP, turnRoots)) {
+        if (captureCostAt(r, c) <= mvLeft) highlighted.add(r + '_' + c);
+      }
+      raidHL = new Set();
+      siegeHL = new Set();
+      if (mvLeft >= 2) for (const [r, c] of getSiegeTargets(curP)) siegeHL.add(r + '_' + c);
+      castleHL = new Set();
+      if (castleMode && mvLeft >= 3) for (const [r, c] of fortifiableCells(curP)) castleHL.add(r + '_' + c);
+      updateActionButtons();
+    }
     function continueOrCloseLayer() {
+      castleMode = false;
       hlFrontier();
-      if (mvLeft > 0 && highlighted.size === 0) {
+      if (mvLeft > 0 && highlighted.size === 0 && siegeHL.size === 0) {
         snapshotRoots(curP);
         hlFrontier();
       }
-      if (mvLeft > 0 && highlighted.size === 0) {
+      if (mvLeft > 0 && highlighted.size === 0 && siegeHL.size === 0 && !extraActionsLeft()) {
         showToast('Genişleyecek kare kalmadı');
         afterMovesGone();
         return false;
       }
       return true;
     }
-    function hlRaid() { raidHL = new Set(getRaidTargets(curP).map(([r, c]) => r + '_' + c)); highlighted = new Set(); }
+    function hlRaid() { raidHL = new Set(getRaidTargets(curP).map(([r, c]) => r + '_' + c)); highlighted = new Set(); siegeHL = new Set(); castleHL = new Set(); }
 
     function updateHUD() {
       const p = players[curP];
       $('cname').textContent = p.name + (p.isBot ? ' 🤖' : '');
       $('cname').style.color = p.col.f;
       $('turnhint').textContent = rolled
-        ? (raidMode ? 'gasp hedefi seç' : (mvLeft > 0 ? 'sınır kareyi seç' : 'sıra bitti'))
+        ? (raidMode ? 'gasp hedefi seç' : castleMode ? 'kale kuracağın kareyi seç' : (mvLeft > 0 ? 'sınır kareyi seç' : 'sıra bitti'))
         : 'sırası · zar at';
     }
     function countEmpty() {
       let n = 0;
-      for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (grid[r][c] < 0 && specials[r + '_' + c] !== T_WALL) n++;
+      for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (grid[r][c] < 0) n++;
       return n;
     }
     function updateScores() {
       players.forEach(p => p.score = 0);
       let owned = 0;
-      for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (grid[r][c] >= 0) { players[grid[r][c]].score++; owned++; }
+      for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (grid[r][c] >= 0) {
+        const k = r + '_' + c;
+        let add = 1;
+        if (terrain[k] === 'peak') add += 1;
+        if (castles[k]) add += 2;
+        players[grid[r][c]].score += add;
+        owned++;
+      }
       $('sbar').innerHTML = players.map(p =>
         `<div class="schip"><div class="sdot" style="background:${p.col.f}"></div><span style="font-weight:700;">${p.score}</span></div>`
       ).join('');
@@ -587,13 +660,14 @@
       }).join('');
     }
     function resetDice() {
-      $('dnum').textContent = '?'; renderPips(null); $('mvtxt').textContent = ''; raidMode = false;
+      $('dnum').textContent = '?'; renderPips(null); $('mvtxt').textContent = ''; raidMode = false; castleMode = false;
       $('skipraid').style.display = 'none';
+      if ($('castlebtn')) $('castlebtn').style.display = 'none';
     }
 
     function doRoll() {
       if (!gameActive || rolled || players[curP].isBot) return;
-      if (getFrontier(curP).length === 0) { showToast('Genişleyecek yer yok!'); endTurn(); return; }
+      if (getFrontier(curP).length === 0 && getSiegeTargets(curP).length === 0 && fortifiableCells(curP).length === 0) { showToast('Genişleyecek yer yok!'); endTurn(); return; }
       rolled = true; $('rollbtn').disabled = true; sfx('roll');
       const svg = $('dsvg'); svg.classList.add('rolling');
       let ticks = 0;
@@ -627,9 +701,9 @@
       $('rollbtn').disabled = false;
       $('endbtn').style.display = 'none';
       $('skipraid').style.display = 'none';
-      highlighted = new Set(); raidHL = new Set(); turnRoots = null; resetDice();
+      highlighted = new Set(); raidHL = new Set(); siegeHL = new Set(); castleHL = new Set(); turnRoots = null; castleMode = false; resetDice();
       let next = (curP + 1) % pc, tries = 0;
-      while (getFrontier(next).length === 0 && tries < pc) { next = (next + 1) % pc; tries++; }
+      while (getFrontier(next).length === 0 && getSiegeTargets(next).length === 0 && fortifiableCells(next).length === 0 && tries < pc) { next = (next + 1) % pc; tries++; }
       if (isFull() || tries >= pc) { endGame(); return; }
       curP = next; updateHUD(); updateScores(); drawGrid();
       if (players[curP].isBot) {
@@ -639,17 +713,18 @@
     }
 
     function isFull() {
-      for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++)
-        if (grid[r][c] < 0 && specials[r + '_' + c] !== T_WALL) return false;
+      for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (grid[r][c] < 0) return false;
       return true;
     }
 
     function afterMovesGone() {
       mvLeft = 0;
-      highlighted = new Set(); raidHL = new Set();
+      castleMode = false;
+      highlighted = new Set(); raidHL = new Set(); siegeHL = new Set(); castleHL = new Set();
       $('mvtxt').textContent = 'Hamle hakkın bitti';
       $('endbtn').style.display = '';
       $('skipraid').style.display = 'none';
+      if ($('castlebtn')) $('castlebtn').style.display = 'none';
       updateHUD();
       drawGrid();
       if (!players[curP].isBot) autoEndTimer = setTimeout(() => { if (gameActive && mvLeft <= 0 && rolled && !raidMode) endTurn(); }, 900);
@@ -675,6 +750,56 @@
         raf = requestAnimationFrame(tick);
       };
       raf = requestAnimationFrame(tick);
+    }
+
+    function drawPeak(ctx, c, r, cs, owned) {
+      const x = c * cs, y = r * cs;
+      if (!owned) {
+        ctx.fillStyle = theme === 'night' ? '#2c3344' : '#d9d2c6';
+        ctx.fillRect(x + 1, y + 1, cs - 1, cs - 1);
+      }
+      ctx.save();
+      ctx.beginPath(); ctx.rect(x + 1, y + 1, cs - 1, cs - 1); ctx.clip();
+      const rock = theme === 'night' ? '#7a8498' : '#8b7355';
+      const rock2 = theme === 'night' ? '#5c6578' : '#6e5a43';
+      const snow = theme === 'night' ? '#e8e6f4' : '#f7f4ee';
+      ctx.fillStyle = rock2;
+      ctx.beginPath();
+      ctx.moveTo(x + cs * 0.08, y + cs * 0.92);
+      ctx.lineTo(x + cs * 0.38, y + cs * 0.28);
+      ctx.lineTo(x + cs * 0.68, y + cs * 0.92);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = rock;
+      ctx.beginPath();
+      ctx.moveTo(x + cs * 0.34, y + cs * 0.92);
+      ctx.lineTo(x + cs * 0.62, y + cs * 0.18);
+      ctx.lineTo(x + cs * 0.94, y + cs * 0.92);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = snow;
+      ctx.beginPath();
+      ctx.moveTo(x + cs * 0.52, y + cs * 0.18);
+      ctx.lineTo(x + cs * 0.62, y + cs * 0.18);
+      ctx.lineTo(x + cs * 0.72, y + cs * 0.40);
+      ctx.lineTo(x + cs * 0.48, y + cs * 0.38);
+      ctx.closePath(); ctx.fill();
+      ctx.restore();
+    }
+    function drawCastle(ctx, c, r, cs) {
+      const x = c * cs, y = r * cs;
+      ctx.save();
+      ctx.beginPath(); ctx.rect(x + 1, y + 1, cs - 1, cs - 1); ctx.clip();
+      const body = '#f0e2b8', line = '#4a3010', door = '#3a2410';
+      const bx = x + cs * 0.22, by = y + cs * 0.30, bw = cs * 0.56, bh = cs * 0.58;
+      ctx.fillStyle = body; ctx.strokeStyle = line; ctx.lineWidth = Math.max(0.7, cs * 0.04);
+      ctx.fillRect(bx, by + bh * 0.22, bw, bh * 0.78);
+      ctx.strokeRect(bx, by + bh * 0.22, bw, bh * 0.78);
+      const mw = bw / 5;
+      for (let i = 0; i < 5; i++) {
+        if (i % 2 === 0) ctx.fillRect(bx + i * mw, by, mw, bh * 0.28);
+      }
+      ctx.fillStyle = door;
+      ctx.fillRect(bx + bw * 0.36, by + bh * 0.48, bw * 0.28, bh * 0.52);
+      ctx.restore();
     }
 
     function drawGrid() {
@@ -713,13 +838,10 @@
           }
           ctx.restore();
           ctx.strokeStyle = col.s; ctx.lineWidth = 0.8; ctx.strokeRect(c * cs + 1.5, r * cs + 1.5, cs - 2, cs - 2);
-        } else if (sp === T_WALL) {
-          ctx.fillStyle = theme === 'night' ? '#2a2a3a' : '#999'; ctx.fillRect(x, y, w, h);
-          ctx.strokeStyle = 'rgba(0,0,0,0.2)'; ctx.lineWidth = 0.7;
-          for (let i = 0; i < cs; i += 4) {
-            ctx.beginPath(); ctx.moveTo(c * cs + i, r * cs + 1); ctx.lineTo(c * cs + 1, r * cs + i); ctx.stroke();
-            ctx.beginPath(); ctx.moveTo(c * cs + cs, r * cs + i); ctx.lineTo(c * cs + i, r * cs + cs); ctx.stroke();
-          }
+          if (terrain[k] === 'peak') drawPeak(ctx, c, r, cs, true);
+          if (castles[k]) drawCastle(ctx, c, r, cs);
+        } else if (sp === T_PEAK || terrain[k] === 'peak') {
+          drawPeak(ctx, c, r, cs, false);
         } else if (sp === T_JOKER) {
           ctx.fillStyle = 'rgba(255,220,0,.22)'; ctx.fillRect(x, y, w, h);
           if (cs >= 10) {
@@ -737,9 +859,20 @@
             ctx.fillText('⚔', c * cs + cs / 2, r * cs + cs / 2 + 1);
           }
         }
-        if (highlighted.has(k) && p < 0 && sp !== T_WALL) {
-          ctx.fillStyle = players[curP].col.l; ctx.fillRect(x, y, w, h);
+        if (highlighted.has(k) && p < 0) {
+          if (sp !== T_PEAK && terrain[k] !== 'peak') {
+            ctx.fillStyle = players[curP].col.l; ctx.fillRect(x, y, w, h);
+          }
           ctx.setLineDash([2, 2]); ctx.strokeStyle = players[curP].col.f; ctx.lineWidth = 1;
+          ctx.strokeRect(c * cs + 2, r * cs + 2, cs - 3, cs - 3); ctx.setLineDash([]);
+        }
+        if (siegeHL.has(k) && p >= 0 && p !== curP) {
+          ctx.fillStyle = 'rgba(200,160,40,0.32)'; ctx.fillRect(x, y, w, h);
+          ctx.setLineDash([3, 2]); ctx.strokeStyle = '#c8a84b'; ctx.lineWidth = 1.6;
+          ctx.strokeRect(c * cs + 2, r * cs + 2, cs - 3, cs - 3); ctx.setLineDash([]);
+        }
+        if (castleHL.has(k) && p === curP) {
+          ctx.setLineDash([3, 2]); ctx.strokeStyle = '#e8d9a0'; ctx.lineWidth = 1.6;
           ctx.strokeRect(c * cs + 2, r * cs + 2, cs - 3, cs - 3); ctx.setLineDash([]);
         }
         if (raidHL.has(k) && p >= 0 && p !== curP) {
@@ -751,7 +884,7 @@
 
       if (hoverCell && gameActive && rolled && !players[curP].isBot) {
         const { r, c } = hoverCell, k = r + '_' + c;
-        if (highlighted.has(k) || raidHL.has(k)) {
+        if (highlighted.has(k) || raidHL.has(k) || siegeHL.has(k) || castleHL.has(k)) {
           ctx.strokeStyle = '#fff8c0'; ctx.lineWidth = 2;
           ctx.strokeRect(c * cs + 1, r * cs + 1, cs - 1, cs - 1);
         }
@@ -800,6 +933,7 @@
 
       if (raidMode) {
         if (!raidHL.has(k)) { showToast('Komşu rakip kareyi seç!'); sfx('error'); return; }
+        if (castles[k]) { showToast('Kale gasp edilmez — kuşat!'); sfx('error'); return; }
         grid[r][c] = curP;
         players[curP].raidPower = false;
         raidMode = false;
@@ -815,23 +949,63 @@
         return;
       }
 
+      if (castleMode) {
+        if (grid[r][c] !== curP) { showToast('Kaleyi kendi karene kur'); sfx('error'); return; }
+        if (castles[k]) { showToast('Burada zaten kale var'); sfx('error'); return; }
+        if (mvLeft < 3) { showToast('Kale için 3 hak gerekir'); sfx('error'); return; }
+        castles[k] = true;
+        mvLeft -= 3;
+        castleMode = false;
+        burst(r, c, '#e8d9a0');
+        sfx('joker');
+        showToast('🏰 Kale kuruldu');
+        updateMovesUI(); updateScores();
+        if (mvLeft <= 0) afterMovesGone(); else continueOrCloseLayer();
+        updateHUD(); drawGrid();
+        return;
+      }
+
+      if (siegeHL.has(k)) {
+        if (mvLeft < 2) { showToast('Kuşatma için 2 hak gerekir'); sfx('error'); return; }
+        if (countOwnNeighbors(r, c, curP) < 3) { showToast('Kaleyi 3 kareyle kuşat'); sfx('error'); return; }
+        grid[r][c] = curP;
+        mvLeft -= 2;
+        burst(r, c, players[curP].col.f);
+        sfx('raid');
+        showToast('🏰 Kale düştü, senin oldu!');
+        updateMovesUI(); updateScores();
+        if (isFull()) { endGame(); return; }
+        if (mvLeft <= 0) afterMovesGone(); else continueOrCloseLayer();
+        updateHUD(); drawGrid();
+        return;
+      }
+
       if (mvLeft <= 0) { showToast('Hamle hakkın bitti'); return; }
       if (!highlighted.has(k)) {
+        if (grid[r][c] === curP && mvLeft >= 3 && !castles[k]) {
+          showToast('Kale kurmak için 🏰 Kale Kur (3) bas');
+          return;
+        }
         const own = countOwnNeighbors(r, c, curP);
         const adjNow = isAdjToSet(r, c, ownedSet(curP));
-        if (adjNow && own < 2) showToast('İp gibi uzayamazsın — en az 2 komşuya yaslan');
+        if (castles[k] && grid[r][c] >= 0 && grid[r][c] !== curP) showToast('Kale için 3 komşu kuşatma ve 2 hak gerekir');
+        else if (adjNow && own < 2) showToast('İp gibi uzayamazsın — en az 2 komşuya yaslan');
         else if (turnRoots && adjNow && !isAdjToSet(r, c, turnRoots)) showToast('Bu tur yalnızca mevcut sınırı doldur');
         else showToast('Sadece sınır kareler!');
         sfx('error');
         return;
       }
 
+      const cost = captureCostAt(r, c);
+      if (mvLeft < cost) { showToast(cost === 2 ? 'Dağ için 2 hak gerekir' : 'Yeterli hak yok'); sfx('error'); return; }
+
       const sp = specials[k];
       delete specials[k];
       grid[r][c] = curP;
-      mvLeft--;
+      mvLeft -= cost;
       burst(r, c, players[curP].col.f);
-      sfx('paint');
+      sfx(sp === T_PEAK ? 'raid' : 'paint');
+      if (sp === T_PEAK) showToast('⛰ Zirve fethedildi (−2)');
 
       if (sp === T_JOKER) {
         mvLeft += 3;
@@ -873,7 +1047,7 @@
         const nr = r + dr, nc = c + dc;
         if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) continue;
         const k = nr + '_' + nc;
-        if (grid[nr][nc] < 0 && specials[k] !== T_WALL) n++;
+        if (grid[nr][nc] < 0) n++;
       }
       return n;
     }
@@ -885,16 +1059,16 @@
       s += ownN * 3;
       const rand = difficulty === 'easy' ? Math.random() * 14 : difficulty === 'hard' ? Math.random() * 1.2 : Math.random() * 3;
       if (pers === 2) {
-        if (sp === T_JOKER) s += 20; if (sp === T_RAID) s += 15; s += rand;
+      if (sp === T_JOKER) s += 20; if (sp === T_RAID) s += 15; if (sp === T_PEAK) s += 12; s += rand;
       } else if (pers === 0) {
-        if (sp === T_JOKER) s += 8; if (sp === T_RAID) s += 12;
+        if (sp === T_JOKER) s += 8; if (sp === T_RAID) s += 12; if (sp === T_PEAK) s += 6;
         for (const [dr, dc] of DIRS) {
           const nr = r + dr, nc = c + dc;
           if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && grid[nr][nc] >= 0 && grid[nr][nc] !== curP) s += 4;
         }
         s += rand;
       } else if (pers === 1) {
-        if (sp === T_JOKER) s += 10; if (sp === T_RAID) s += 5;
+        if (sp === T_JOKER) s += 10; if (sp === T_RAID) s += 5; if (sp === T_PEAK) s += 14;
         let en = 0;
         for (const [dr, dc] of DIRS) {
           const nr = r + dr, nc = c + dc;
@@ -904,7 +1078,7 @@
         }
         s += ownN * 2 - en * 1.5 + Math.abs(r - ROWS / 2) * 0.3 + rand;
       } else {
-        if (sp === T_JOKER) s += 5; if (sp === T_RAID) s += 5; s += Math.random() * 10 + rand;
+        if (sp === T_JOKER) s += 5; if (sp === T_RAID) s += 5; if (sp === T_PEAK) s += 5; s += Math.random() * 10 + rand;
       }
       if (difficulty === 'hard') s += newFrontierGain(r, c, curP) * 0.4;
       return s;
@@ -912,7 +1086,7 @@
 
     function botTurn() {
       if (!gameActive || !players[curP].isBot) return;
-      if (getFrontier(curP).length === 0) { endTurn(); return; }
+      if (getFrontier(curP).length === 0 && getSiegeTargets(curP).length === 0 && fortifiableCells(curP).length === 0) { endTurn(); return; }
       rolled = true; $('rollbtn').disabled = true; sfx('roll');
       const svg = $('dsvg'); svg.classList.add('rolling');
       let ticks = 0;
@@ -959,12 +1133,56 @@
         return;
       }
 
-      let frontier = getFrontier(curP, turnRoots);
+      const sieges = mvLeft >= 2 ? getSiegeTargets(curP) : [];
+      if (sieges.length && (pers === 0 || pers === 1 || difficulty === 'hard' || Math.random() > 0.4)) {
+        let pick = sieges[0], bs = -1;
+        for (const [sr, sc] of sieges) {
+          const val = 20 + countOwnNeighbors(sr, sc, curP) * 3;
+          if (val > bs) { bs = val; pick = [sr, sc]; }
+        }
+        grid[pick[0]][pick[1]] = curP;
+        mvLeft -= 2;
+        burst(pick[0], pick[1], players[curP].col.f);
+        sfx('raid');
+        showToast('🏰 ' + players[curP].name + ' kaleyi düşürdü!');
+        updateMovesUI(); updateScores();
+        if (isFull()) { endGame(); return; }
+        botTimer = setTimeout(botMove, pers === 3 ? 80 : 180);
+        return;
+      }
+
+      let frontier = getFrontier(curP, turnRoots).filter(([r, c]) => captureCostAt(r, c) <= mvLeft);
       if (frontier.length === 0 && mvLeft > 0) {
         snapshotRoots(curP);
-        frontier = getFrontier(curP, turnRoots);
+        frontier = getFrontier(curP, turnRoots).filter(([r, c]) => captureCostAt(r, c) <= mvLeft);
       }
-      if (frontier.length === 0) { botTimer = setTimeout(endTurn, 280); return; }
+      if (frontier.length === 0) {
+        if (mvLeft >= 3 && (pers === 1 || difficulty === 'hard')) {
+          const spots = fortifiableCells(curP);
+          if (spots.length) {
+            let pick = spots[0], bs = -1;
+            for (const [rr, cc] of spots) {
+              let en = 0;
+              for (const [dr, dc] of DIRS) {
+                const nr = rr + dr, nc = cc + dc;
+                if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && grid[nr][nc] >= 0 && grid[nr][nc] !== curP) en++;
+              }
+              if (en > bs) { bs = en; pick = [rr, cc]; }
+            }
+            if (bs > 0 || pers === 1) {
+              castles[pick[0] + '_' + pick[1]] = true;
+              mvLeft -= 3;
+              burst(pick[0], pick[1], '#e8d9a0');
+              showToast('🏰 ' + players[curP].name + ' kale kurdu');
+              updateMovesUI(); updateScores();
+              botTimer = setTimeout(botMove, 200);
+              return;
+            }
+          }
+        }
+        botTimer = setTimeout(endTurn, 280);
+        return;
+      }
       let best = null, bestS = -Infinity;
       for (const [r, c] of frontier) {
         const s = scoreCell(r, c, pers);
@@ -972,10 +1190,12 @@
       }
       const [r, c] = best;
       const sp = specials[r + '_' + c];
+      const cost = captureCostAt(r, c);
       delete specials[r + '_' + c];
-      grid[r][c] = curP; mvLeft--;
+      grid[r][c] = curP; mvLeft -= cost;
       burst(r, c, players[curP].col.f);
       sfx('paint');
+      if (sp === T_PEAK) showToast('⛰ ' + players[curP].name + ' zirve aldı');
       if (sp === T_JOKER) { mvLeft += 3; sfx('joker'); showToast('⭐ ' + players[curP].name + ' joker buldu!'); }
       if (sp === T_RAID) players[curP].raidPower = true;
       updateMovesUI(); updateScores();
@@ -997,7 +1217,7 @@
         `<div class="frow"><div style="display:flex;align-items:center;gap:7px;">
           <div class="pdot" style="background:${p.col.f};width:13px;height:13px;"></div>
           <span>${!tie && i === 0 ? '🏆 ' : ''}${p.name}</span></div>
-          <span style="font-weight:700;">${p.score} kare</span></div>`
+          <span style="font-weight:700;">${p.score} puan</span></div>`
       ).join('');
       sfx('win');
       setTimeout(() => showScreen('s-win'), 480);
