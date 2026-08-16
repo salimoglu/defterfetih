@@ -229,7 +229,7 @@
         <div class="lgit"><div class="lgsw" style="background:#ff69b4;"></div>⚔️ Gasp</div>
         <div class="lgit"><div class="lgsw" style="background:#c4b49a;"></div>⛰ Dağ (2)</div>
         <div class="lgit"><div class="lgsw" style="background:#e8d9a0;"></div>🏰 Kale (3 / kuşatma 2)</div>
-        <div class="lgit" style="opacity:.7;">🏰 kalın cepheyle ilerle</div>
+        <div class="lgit" style="opacity:.7;">↗ 8 yön</div>
         <div class="lgit" id="emptyhint"></div>
       </div>
       <div id="gw"><canvas id="gc"></canvas></div>
@@ -255,8 +255,7 @@
       <ol class="rules">
         <li>Her oyuncu köşesindeki 3×3 üsle başlar.</li>
         <li>Sıran gelince zar at: <b>1–9 hamle</b> kazanırsın.</li>
-        <li>Sadece kendi bölgene <b>kenardan (yatay/dikey) komşu</b> boş kareleri alabilirsin; yalnız köşeden değmek yetmez.</li>
-        <li>İp gibi uzayamazsın: ince uçtan tek kare daha gidemezsin. Önce cepheyi <b>kalınlaştır</b>, sonra ileri çık. Aynı turda hem genişleyip hem ilerleyebilirsin.</li>
+        <li>Sadece kendi bölgene <b>8 yönden komşu</b> boş kareleri alabilirsin.</li>
         <li><b>⭐ Joker</b> +3 hamle verir.</li>
         <li><b>⚔️ Gasp</b> komşu bir rakip kareyi çalmanı sağlar; <b>kale gasp edilemez</b>.</li>
         <li><b>⛰ Dağ</b> zirve gibi durur; almak <b>2 hak</b> ister, 2 puan sayılır.</li>
@@ -292,7 +291,6 @@
     const PERS = ['🗡️ Agresif', '🛡️ Savunmacı', '⭐ Fırsatçı', '🎲 Kaotik'];
     const T_WALL = 100, T_PEAK = 100, T_JOKER = 101, T_RAID = 102;
     const DIRS = [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[-1,1],[1,-1],[1,1]];
-    const ORTHO = [[-1,0],[1,0],[0,-1],[0,1]];
     const PIP_POS = [[-12,-12],[0,-12],[12,-12],[-12,0],[0,0],[12,0],[-12,12],[0,12],[12,12]];
     const PIP_LAY = { 1:[4], 2:[0,8], 3:[0,4,8], 4:[0,2,6,8], 5:[0,2,4,6,8], 6:[0,2,3,5,6,8], 7:[0,2,3,4,5,6,8], 8:[0,1,2,3,5,6,7,8], 9:[0,1,2,3,4,5,6,7,8] };
     const TPAPER = { default: '#fdf8e8', night: '#0d0d1f', forest: '#f0f8e8', ocean: '#e8f4fc' };
@@ -526,19 +524,6 @@
     }
     function snapshotRoots(p) { turnRoots = ownedSet(p); }
 
-    function canClaim(r, c, p) {
-      const bases = [];
-      for (const [dr, dc] of ORTHO) {
-        const nr = r + dr, nc = c + dc;
-        if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && grid[nr][nc] === p) bases.push([nr, nc]);
-      }
-      if (!bases.length) return false;
-      if (bases.length >= 2) return true;
-      if (countOwnNeighbors(r, c, p) >= 2) return true;
-      const [br, bc] = bases[0];
-      return countOwnNeighbors(br, bc, p) >= 2;
-    }
-
     function captureCostAt(r, c) {
       const k = r + '_' + c;
       if (grid[r][c] < 0 && specials[k] === T_PEAK) return 2;
@@ -584,7 +569,6 @@
           if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) continue;
           const k = nr + '_' + nc;
           if (seen.has(k) || grid[nr][nc] >= 0) continue;
-          if (!canClaim(nr, nc, p)) continue;
           seen.add(k); res.push([nr, nc]);
         }
       }
@@ -995,10 +979,8 @@
           showToast('Kale kurmak için 🏰 Kale Kur (3) bas');
           return;
         }
-        const adjNow = isAdjToSet(r, c, ownedSet(curP));
         if (castles[k] && grid[r][c] >= 0 && grid[r][c] !== curP) showToast('Kale için 3 komşu kuşatma ve 2 hak gerekir');
-        else if (adjNow && !canClaim(r, c, curP)) showToast('Önce cepheyi kalınlaştır, ince uçtan gidemezsin');
-        else showToast('Kenardan komşu sınır kareleri seç');
+        else showToast('Sadece sınır kareler!');
         sfx('error');
         return;
       }
