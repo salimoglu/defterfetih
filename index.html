@@ -272,7 +272,7 @@
       <ol class="rules">
         <li>Her oyuncu köşesindeki 3×3 üsle başlar.</li>
         <li>Sıran gelince zar at: <b>1–9 hamle</b> kazanırsın.</li>
-        <li>Sadece kendi bölgene <b>kenardan komşu</b> ve en az <b>2 kendi kareye yaslanan</b> boş kareleri alabilirsin. Ülke gibi büyürsün: üsse daha yakın boş kareler dururken ileri atlayamazsın. Aynı turda halka dolunca haklarınla devam edersin.</li>
+        <li>Sadece kendi bölgene <b>kenardan komşu</b> ve en az <b>2 kendi kareye yaslanan</b> boş kareleri alabilirsin. Ülke gibi büyürsün: bölgene değen, üsse daha yakın alınabilir boşlar varken aşırı ileri atlayamazsın (bir önceki halkada birkaç boşluk bırakabilirsin). İnce ip/yılan uzatılamaz.</li>
         <li><b>⭐ Joker</b> +3 hamle verir.</li>
         <li><b>⚔️ Gasp</b> komşu bir rakip kareyi çalmanı sağlar; <b>kale gasp edilemez</b>.</li>
         <li><b>⛰ Dağ</b> zirve gibi durur; almak <b>2 hak</b> ister, 2 puan sayılır.</li>
@@ -315,7 +315,9 @@
   <div id="toast"></div>
 
   <script>
-    const VERSION = '1.6.1';
+    const VERSION = '1.6.2';
+    // How many claimable holes may remain on the previous ring while pushing outward.
+    const RING_SLACK = 3;
     const PCOLS = [
       { f: '#e05a2b', s: '#a03010', l: 'rgba(224,90,43,0.28)' },
       { f: '#2b7ae0', s: '#1050a0', l: 'rgba(43,122,224,0.28)' },
@@ -607,10 +609,23 @@
       }
       return d;
     }
-    function emptyByRing(p) {
+    function passesBorderRules(r, c, p) {
+      let ortho = 0;
+      for (const [dr, dc] of ORTHO) {
+        const nr = r + dr, nc = c + dc;
+        if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && grid[nr][nc] === p) ortho++;
+      }
+      return ortho >= 1 && countOwnNeighbors(r, c, p) >= 2;
+    }
+    // Only empties that touch your land and pass anti-snake rules count —
+    // far/unreachable holes near the base no longer freeze the whole front.
+    function claimableByRing(p) {
+      const owned = ownedSet(p);
       const counts = [];
       for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
         if (grid[r][c] >= 0) continue;
+        if (!isAdjToSet(r, c, owned)) continue;
+        if (!passesBorderRules(r, c, p)) continue;
         const d = distToBase(r, c, p);
         counts[d] = (counts[d] || 0) + 1;
       }
@@ -618,18 +633,15 @@
     }
 
     function canClaim(r, c, p, rings) {
-      let ortho = 0;
-      for (const [dr, dc] of ORTHO) {
-        const nr = r + dr, nc = c + dc;
-        if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && grid[nr][nc] === p) ortho++;
-      }
-      if (ortho < 1) return false;
-      if (countOwnNeighbors(r, c, p) < 2) return false;
+      if (!passesBorderRules(r, c, p)) return false;
       const d = distToBase(r, c, p);
       if (d <= 1) return true;
-      const empty = rings || emptyByRing(p);
-      for (let k = 1; k < d; k++) if (empty[k]) return false;
-      return true;
+      const empty = rings || claimableByRing(p);
+      // Older rings should be nearly clean (1 leftover ok); previous ring may keep RING_SLACK holes.
+      let older = 0;
+      for (let k = 1; k < d - 1; k++) older += (empty[k] || 0);
+      if (older > 1) return false;
+      return (empty[d - 1] || 0) <= RING_SLACK;
     }
 
     function captureCostAt(r, c) {
@@ -668,7 +680,7 @@
 
     function getFrontier(p) {
       const origin = ownedSet(p);
-      const rings = emptyByRing(p);
+      const rings = claimableByRing(p);
       const seen = new Set(), res = [];
       for (const key of origin) {
         const u = key.indexOf('_');
@@ -1090,8 +1102,8 @@
           return;
         }
         if (castles[k] && grid[r][c] >= 0 && grid[r][c] !== curP) showToast('Kale için 3 komşu kuşatma ve 2 hak gerekir');
-        else if (isAdjToSet(r, c, ownedSet(curP)) && countOwnNeighbors(r, c, curP) >= 2 && !canClaim(r, c, curP)) showToast('Önce üsse yakın boş kareleri doldur');
-        else if (!canClaim(r, c, curP) && isAdjToSet(r, c, ownedSet(curP))) showToast('Yılan olmaz: en az 2 komşu kareye yaslan');
+        else if (passesBorderRules(r, c, curP) && !canClaim(r, c, curP)) showToast('Önce yakındaki sınır boşlarını doldur');
+        else if (!passesBorderRules(r, c, curP) && isAdjToSet(r, c, ownedSet(curP))) showToast('Yılan olmaz: en az 2 komşu kareye yaslan');
         else showToast('Sadece sınır kareler!');
         sfx('error');
         return;
