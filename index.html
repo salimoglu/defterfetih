@@ -11,8 +11,9 @@
   <meta name="description" content="Kareleri fethet, ülke gibi büyü. PC ve telefona yüklenebilir." />
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
   <title>Defter Fetih</title>
-  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="manifest" href="manifest.webmanifest?v=1.6.1" />
   <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -204,7 +205,7 @@
         <button class="bigbtn ghost" id="soundbtn">🔊 Ses Açık</button>
       </div>
       <button class="bigbtn" id="startbtn">Oyunu Başlat →</button>
-      <button class="bigbtn ghost" id="installbtn" style="display:none">📲 Telefona / PC'ye yükle</button>
+      <button class="bigbtn ghost" id="installbtn">Telefona / PC'ye yükle</button>
       <div class="hint" id="installhint" style="display:none;text-align:center;">iPhone: Paylaş → Ana Ekrana Ekle</div>
     </div>
   </div>
@@ -289,6 +290,7 @@
       <div class="ver" data-ver style="margin-bottom:8px;"></div>
       <div class="rowbtns" style="flex-direction:column;">
         <button class="bigbtn ghost" id="mhelp">Nasıl Oynanır</button>
+        <button class="bigbtn ghost" id="minstall">Uygulamayı Yükle</button>
         <button class="bigbtn ghost" id="msound">🔊 Ses</button>
         <button class="bigbtn ghost" id="mresign">Bu Oyunu Bitir</button>
         <button class="bigbtn" id="mclose">Devam Et</button>
@@ -296,10 +298,24 @@
     </div>
   </div>
 
+  <div class="overlay" id="installov">
+    <div class="modal">
+      <div class="clbl">Uygulamayı Yükle</div>
+      <div class="hint" style="margin:6px 0 10px;">Ana ekrana ekle — çevrimdışı da açılır.</div>
+      <ol class="rules" id="installsteps">
+        <li id="istep-chrome"><b>Android / Windows / Mac (Chrome · Edge):</b> Aşağıdaki “Şimdi yükle”ye bas. Yoksa tarayıcı menüsünden <b>Uygulamayı yükle</b> / <b>Install app</b>.</li>
+        <li id="istep-ios"><b>iPhone / iPad (Safari):</b> Alttaki <b>Paylaş</b> → <b>Ana Ekrana Ekle</b> → Ekle.</li>
+        <li id="istep-desktop"><b>PC:</b> Adres çubuğundaki yükle ikonuna tıkla veya menüden <b>Uygulamayı yükle</b>.</li>
+      </ol>
+      <button class="bigbtn" id="installnow" style="margin-top:10px;display:none;">Şimdi yükle</button>
+      <button class="bigbtn ghost" id="installok" style="margin-top:8px;">Tamam</button>
+    </div>
+  </div>
+
   <div id="toast"></div>
 
   <script>
-    const VERSION = '1.6.0';
+    const VERSION = '1.6.1';
     const PCOLS = [
       { f: '#e05a2b', s: '#a03010', l: 'rgba(224,90,43,0.28)' },
       { f: '#2b7ae0', s: '#1050a0', l: 'rgba(43,122,224,0.28)' },
@@ -431,18 +447,43 @@
     $('mclose').addEventListener('click', () => $('menuov').classList.remove('show'));
     $('mresign').addEventListener('click', () => { $('menuov').classList.remove('show'); if (gameActive) endGame(); });
     $('startbtn').addEventListener('click', startGame);
-    $('installbtn').addEventListener('click', async () => {
+    async function promptInstall() {
       if (deferredInstall) {
         deferredInstall.prompt();
-        await deferredInstall.userChoice;
+        const choice = await deferredInstall.userChoice;
         deferredInstall = null;
-        $('installbtn').style.display = 'none';
-        $('installhint').style.display = 'none';
-        return;
+        if (choice && choice.outcome === 'accepted') {
+          hideInstallUI();
+          showToast('Defter Fetih yüklendi');
+        }
+        return true;
       }
-      if (isIOS()) showToast('Safari: Paylaş → Ana Ekrana Ekle');
-      else showToast('Tarayıcı menüsünden “Uygulamayı yükle”yi seç');
+      return false;
+    }
+    function openInstallGuide() {
+      $('installov').classList.add('show');
+      $('installnow').style.display = deferredInstall ? '' : 'none';
+    }
+    function hideInstallUI() {
+      $('installbtn').style.display = 'none';
+      $('installhint').style.display = 'none';
+      if ($('minstall')) $('minstall').style.display = 'none';
+      $('installov').classList.remove('show');
+    }
+    $('installbtn').addEventListener('click', async () => {
+      if (await promptInstall()) return;
+      openInstallGuide();
     });
+    $('minstall').addEventListener('click', async () => {
+      $('menuov').classList.remove('show');
+      if (await promptInstall()) return;
+      openInstallGuide();
+    });
+    $('installnow').addEventListener('click', async () => {
+      if (!(await promptInstall())) openInstallGuide();
+      else $('installov').classList.remove('show');
+    });
+    $('installok').addEventListener('click', () => $('installov').classList.remove('show'));
     $('againbtn').addEventListener('click', startGame);
     $('setupbtn').addEventListener('click', () => showScreen('s-setup'));
     $('rollbtn').addEventListener('click', () => { ensureAudio(); doRoll(); });
@@ -1322,23 +1363,33 @@
     function isIOS() {
       return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     }
-    if (!isStandalone()) {
+    if (isStandalone()) {
+      hideInstallUI();
+    } else {
       $('installbtn').style.display = '';
       if (isIOS()) $('installhint').style.display = '';
     }
     window.addEventListener('beforeinstallprompt', (e) => {
       e.preventDefault();
       deferredInstall = e;
-      if (!isStandalone()) $('installbtn').style.display = '';
+      if (!isStandalone()) {
+        $('installbtn').style.display = '';
+        $('installbtn').classList.remove('ghost');
+        $('installbtn').textContent = 'Şimdi yükle';
+        if ($('installnow')) $('installnow').style.display = '';
+      }
     });
     window.addEventListener('appinstalled', () => {
       deferredInstall = null;
-      $('installbtn').style.display = 'none';
-      $('installhint').style.display = 'none';
+      hideInstallUI();
       showToast('Defter Fetih yüklendi');
     });
+  </script>
+  <script>
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./sw.js?v=' + VERSION, { updateViaCache: 'none' });
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).catch(() => {});
+      });
     }
   </script>
 </body>

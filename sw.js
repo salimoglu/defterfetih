@@ -1,4 +1,4 @@
-const CACHE = 'defter-fetih-1.6.0';
+const CACHE = 'defter-fetih-1.6.1';
 const ASSETS = [
   './',
   './index.html',
@@ -9,10 +9,21 @@ const ASSETS = [
   './apple-touch-icon.png'
 ];
 
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(ASSETS)).then(() => self.skipWaiting())
+async function precache() {
+  const cache = await caches.open(CACHE);
+  await Promise.all(
+    ASSETS.map(async (url) => {
+      try {
+        await cache.add(url);
+      } catch (_) {
+        /* skip missing/redirect-only assets so install still succeeds */
+      }
+    })
   );
+}
+
+self.addEventListener('install', (event) => {
+  event.waitUntil(precache().then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (event) => {
@@ -26,9 +37,11 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
+
   const url = new URL(req.url);
   const same = url.origin === self.location.origin;
-  const navigate = req.mode === 'navigate' || (same && /\/(index\.html)?$/.test(url.pathname));
+  const navigate = req.mode === 'navigate' ||
+    (same && (url.pathname.endsWith('/') || /\/index\.html$/.test(url.pathname)));
 
   if (navigate) {
     event.respondWith(
@@ -36,7 +49,7 @@ self.addEventListener('fetch', (event) => {
         const copy = res.clone();
         caches.open(CACHE).then((c) => c.put('./index.html', copy));
         return res;
-      }).catch(() => caches.match('./index.html'))
+      }).catch(() => caches.match('./index.html').then((hit) => hit || caches.match('./')))
     );
     return;
   }
@@ -51,7 +64,7 @@ self.addEventListener('fetch', (event) => {
           caches.open(CACHE).then((c) => c.put(req, copy));
         }
         return res;
-      });
+      }).catch(() => caches.match(req));
     })
   );
 });
