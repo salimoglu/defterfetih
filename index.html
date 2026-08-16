@@ -19,7 +19,7 @@
       --line: rgba(160, 130, 60, 0.22);
     }
     * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-    html, body { min-height: 100%; }
+    html, body { height: 100%; }
     body {
       font-family: 'Caveat', cursive;
       background: var(--paper);
@@ -43,7 +43,27 @@
 
     .screen { display: none; flex-direction: column; align-items: center; padding: 12px 8px 28px; gap: 8px; position: relative; z-index: 1; }
     .screen.active { display: flex; }
+    #s-setup.active, #s-win.active { overflow-y: auto; max-height: 100dvh; max-height: 100svh; }
+    #s-game.active {
+      height: 100dvh; height: 100svh; padding: 6px 8px 8px; gap: 4px; overflow: hidden;
+      padding-bottom: max(8px, env(safe-area-inset-bottom));
+    }
     .content { width: 100%; max-width: 480px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+    #s-game .content {
+      max-width: min(560px, 100%);
+      height: 100%;
+      min-height: 0;
+      gap: 4px;
+      flex: 1;
+    }
+    #s-game .hud { padding: 4px 8px; flex-shrink: 0; }
+    #s-game .cname { font-size: 17px; }
+    #s-game .darea { padding: 4px 8px; gap: 3px; flex-shrink: 0; }
+    #s-game .dnum { font-size: 22px; }
+    #s-game #dsvg { width: 36px; height: 36px; }
+    #s-game .rollbtn { padding: 6px 14px; font-size: 16px; }
+    #s-game .legend { padding: 3px 8px; gap: 6px; flex-shrink: 0; }
+    #s-game .prog { flex-shrink: 0; height: 5px; }
     .title { font-family: 'Special Elite', serif; font-size: 28px; color: var(--ink); text-align: center; border-bottom: 2px solid var(--gold); padding-bottom: 6px; width: 100%; }
     .subtitle { font-size: 16px; color: var(--muted); text-align: center; margin-top: -4px; }
     .card { background: var(--card); border: 1.5px solid var(--gold); border-radius: 8px; padding: 10px 12px; width: 100%; }
@@ -91,7 +111,12 @@
     .legend { width: 100%; display: flex; gap: 8px; flex-wrap: wrap; background: var(--card); border: 1px solid var(--gold); border-radius: 7px; padding: 5px 9px; }
     .lgit { display: flex; align-items: center; gap: 3px; font-size: 12px; color: var(--muted); }
     .lgsw { width: 12px; height: 12px; border-radius: 2px; }
-    #gw { width: 100%; border: 2px solid var(--btn); border-radius: 4px; background: var(--paper); overflow: hidden; box-shadow: 3px 3px 0 rgba(100, 60, 0, .12); display: flex; justify-content: center; }
+    #gw {
+      width: 100%; flex: 1; min-height: 0;
+      border: 2px solid var(--btn); border-radius: 4px; background: var(--paper);
+      overflow: hidden; box-shadow: 3px 3px 0 rgba(100, 60, 0, .12);
+      display: flex; justify-content: center; align-items: center;
+    }
     #gc { display: block; touch-action: none; cursor: pointer; }
     .wincard { background: var(--card); border: 2px solid var(--gold); border-radius: 10px; padding: 13px 18px; width: 100%; }
     .frow { display: flex; align-items: center; justify-content: space-between; font-size: 18px; color: var(--ink); padding: 3px 0; }
@@ -397,6 +422,20 @@
       return [[0, 0], [ROWS - 3, COLS - 3], [0, COLS - 3], [ROWS - 3, 0]];
     }
 
+    function chooseBoard() {
+      const vh = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
+      const vw = Math.min((window.visualViewport && window.visualViewport.width) || window.innerWidth, 560) - 16;
+      const landscape = vh < 520;
+      const chrome = landscape ? 138 : 188;
+      const availH = Math.max(180, vh - chrome);
+      const availW = Math.max(220, vw);
+      const minCs = landscape ? 14 : 16;
+      const maxC = pc === 2 ? 16 : pc === 3 ? 16 : 17;
+      const maxR = landscape ? 13 : 17;
+      COLS = Math.max(12, Math.min(maxC, Math.floor(availW / minCs)));
+      ROWS = Math.max(12, Math.min(maxR, Math.floor(availH / minCs)));
+    }
+
     function startGame() {
       ensureAudio();
       clearTimeout(autoEndTimer); clearTimeout(botTimer);
@@ -405,8 +444,8 @@
         const nm = $('ni' + i)?.value.trim() || PNAMES[i];
         players.push({ name: nm, col: PCOLS[i], score: 0, isBot: !!botFlags[i], raidPower: false, pers: i % 4 });
       }
-      COLS = pc === 2 ? 20 : pc === 3 ? 22 : 24;
-      ROWS = 26;
+      COLS = 0; ROWS = 0;
+      chooseBoard();
       grid = Array.from({ length: ROWS }, () => new Int16Array(COLS).fill(-1));
       specials = {};
       bases().forEach(([r0, c0], p) => {
@@ -422,6 +461,7 @@
       $('skipraid').style.display = 'none';
       startLoop();
       drawGrid();
+      requestAnimationFrame(() => drawGrid());
       if (players[curP].isBot) botTimer = setTimeout(botTurn, 700);
       beep(392, 0.08);
     }
@@ -635,8 +675,9 @@
     function drawGrid() {
       const gc = $('gc'), wrap = $('gw');
       const W = wrap.clientWidth || 360;
+      const H = wrap.clientHeight || 360;
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      cs = Math.max(8, Math.floor(W / COLS));
+      cs = Math.max(6, Math.min(Math.floor(W / COLS), Math.floor(H / ROWS)));
       const cssW = cs * COLS, cssH = cs * ROWS;
       if (gc.style.width !== cssW + 'px' || gc.width !== Math.floor(cssW * dpr)) {
         gc.style.width = cssW + 'px';
@@ -963,7 +1004,9 @@
       clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2000);
     }
 
-    window.addEventListener('resize', () => { if ($('s-game').classList.contains('active')) drawGrid(); });
+    function onViewport() { if ($('s-game').classList.contains('active')) drawGrid(); }
+    window.addEventListener('resize', onViewport);
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', onViewport);
     window.addEventListener('keydown', (e) => {
       if (e.code === 'Escape') {
         if ($('helpov').classList.contains('show')) $('helpov').classList.remove('show');
