@@ -315,7 +315,8 @@
   <div id="toast"></div>
 
   <script>
-    const VERSION = '1.6.2';
+    const VERSION = '1.6.3';
+    const TARGET_CELLS = 200;
     // How many claimable holes may remain on the previous ring while pushing outward.
     const RING_SLACK = 3;
     const PCOLS = [
@@ -521,11 +522,22 @@
       const chrome = landscape ? 138 : 188;
       const availH = Math.max(180, vh - chrome);
       const availW = Math.max(220, vw);
-      const minCs = landscape ? 14 : 16;
-      const maxC = pc === 2 ? 16 : pc === 3 ? 16 : 17;
-      const maxR = landscape ? 13 : 17;
-      COLS = Math.max(12, Math.min(maxC, Math.floor(availW / minCs)));
-      ROWS = Math.max(12, Math.min(maxR, Math.floor(availH / minCs)));
+      const aspect = availW / availH;
+      // Exact TARGET_CELLS factor pairs (both sides large enough for 3×3 bases).
+      const pairs = [];
+      for (let cols = 8; cols <= TARGET_CELLS / 8; cols++) {
+        if (TARGET_CELLS % cols !== 0) continue;
+        const rows = TARGET_CELLS / cols;
+        if (rows < 8) continue;
+        pairs.push([cols, rows]);
+      }
+      let best = pairs[0] || [10, 20], bestDiff = Infinity;
+      for (const [cols, rows] of pairs) {
+        const diff = Math.abs(cols / rows - aspect);
+        if (diff < bestDiff) { bestDiff = diff; best = [cols, rows]; }
+      }
+      COLS = best[0];
+      ROWS = best[1];
     }
 
     function startGame() {

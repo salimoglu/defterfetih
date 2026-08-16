@@ -1,4 +1,4 @@
-const CACHE = 'defter-fetih-1.6.2';
+const CACHE = 'defter-fetih-1.6.3';
 const ASSETS = [
   './',
   './index.html',
