@@ -4,9 +4,17 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#fdf8e8" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Defter Fetih" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="description" content="Kareleri fethet, ülke gibi büyü. PC ve telefona yüklenebilir." />
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <title>Defter Fetih</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=Special+Elite&display=swap" rel="stylesheet" />
@@ -196,6 +204,8 @@
         <button class="bigbtn ghost" id="soundbtn">🔊 Ses Açık</button>
       </div>
       <button class="bigbtn" id="startbtn">Oyunu Başlat →</button>
+      <button class="bigbtn ghost" id="installbtn" style="display:none">📲 Telefona / PC'ye yükle</button>
+      <div class="hint" id="installhint" style="display:none;text-align:center;">iPhone: Paylaş → Ana Ekrana Ekle</div>
     </div>
   </div>
 
@@ -267,6 +277,7 @@
         <li><b>⛰ Dağ</b> zirve gibi durur; almak <b>2 hak</b> ister, 2 puan sayılır.</li>
         <li><b>🏰 Kale</b> kendi karenize <b>3 hak</b>la kurulur. Düşürmek için kaleyi en az <b>3 kareyle kuşatıp 2 hak</b> harcaman gerekir; kale sana geçer.</li>
         <li>Tahta dolunca (veya kimse genişleyemeyince) en çok <b>puanı</b> olan kazanır. Dağ 2, kale +2 puan.</li>
+        <li>Oyunu <b>telefona veya PC'ye</b> yükleyebilirsin: Chrome / Edge'de “Yükle”; iPhone'da Paylaş → Ana Ekrana Ekle.</li>
       </ol>
       <button class="bigbtn" id="helpok" style="margin-top:10px;">Anladım</button>
     </div>
@@ -288,7 +299,7 @@
   <div id="toast"></div>
 
   <script>
-    const VERSION = '1.5.5';
+    const VERSION = '1.6.0';
     const PCOLS = [
       { f: '#e05a2b', s: '#a03010', l: 'rgba(224,90,43,0.28)' },
       { f: '#2b7ae0', s: '#1050a0', l: 'rgba(43,122,224,0.28)' },
@@ -420,6 +431,18 @@
     $('mclose').addEventListener('click', () => $('menuov').classList.remove('show'));
     $('mresign').addEventListener('click', () => { $('menuov').classList.remove('show'); if (gameActive) endGame(); });
     $('startbtn').addEventListener('click', startGame);
+    $('installbtn').addEventListener('click', async () => {
+      if (deferredInstall) {
+        deferredInstall.prompt();
+        await deferredInstall.userChoice;
+        deferredInstall = null;
+        $('installbtn').style.display = 'none';
+        $('installhint').style.display = 'none';
+        return;
+      }
+      if (isIOS()) showToast('Safari: Paylaş → Ana Ekrana Ekle');
+      else showToast('Tarayıcı menüsünden “Uygulamayı yükle”yi seç');
+    });
     $('againbtn').addEventListener('click', startGame);
     $('setupbtn').addEventListener('click', () => showScreen('s-setup'));
     $('rollbtn').addEventListener('click', () => { ensureAudio(); doRoll(); });
@@ -1290,6 +1313,32 @@
     if (!localStorage.getItem('defter-fetih-seen')) {
       localStorage.setItem('defter-fetih-seen', '1');
       $('helpov').classList.add('show');
+    }
+
+    let deferredInstall = null;
+    function isStandalone() {
+      return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+    }
+    function isIOS() {
+      return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    }
+    if (!isStandalone()) {
+      $('installbtn').style.display = '';
+      if (isIOS()) $('installhint').style.display = '';
+    }
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredInstall = e;
+      if (!isStandalone()) $('installbtn').style.display = '';
+    });
+    window.addEventListener('appinstalled', () => {
+      deferredInstall = null;
+      $('installbtn').style.display = 'none';
+      $('installhint').style.display = 'none';
+      showToast('Defter Fetih yüklendi');
+    });
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js?v=' + VERSION, { updateViaCache: 'none' });
     }
   </script>
 </body>
