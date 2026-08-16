@@ -261,8 +261,7 @@
       <ol class="rules">
         <li>Her oyuncu köşesindeki 3×3 üsle başlar.</li>
         <li>Sıran gelince zar at: <b>1–9 hamle</b> kazanırsın.</li>
-        <li>Sadece kendi bölgene <b>kenardan (yatay/dikey) komşu</b> boş kareleri alabilirsin.</li>
-        <li>İp/yılan gibi uzayamazsın: ince uçtan devam edemezsin. Önce cepheyi kalınlaştır, sonra ileri çık. Aynı turda hem genişleyip hem ilerleyebilirsin.</li>
+        <li>Sadece kendi bölgene <b>kenardan komşu</b> ve en az <b>2 kendi kareye yaslanan</b> boş kareleri alabilirsin. İnce ip/yılan uzatılamaz; cephe kalınlaşarak ilerler.</li>
         <li><b>⭐ Joker</b> +3 hamle verir.</li>
         <li><b>⚔️ Gasp</b> komşu bir rakip kareyi çalmanı sağlar; <b>kale gasp edilemez</b>.</li>
         <li><b>⛰ Dağ</b> zirve gibi durur; almak <b>2 hak</b> ister, 2 puan sayılır.</li>
@@ -289,7 +288,7 @@
   <div id="toast"></div>
 
   <script>
-    const VERSION = '1.5.0';
+    const VERSION = '1.5.1';
     const PCOLS = [
       { f: '#e05a2b', s: '#a03010', l: 'rgba(224,90,43,0.28)' },
       { f: '#2b7ae0', s: '#1050a0', l: 'rgba(43,122,224,0.28)' },
@@ -535,16 +534,13 @@
     function snapshotRoots(p) { turnRoots = ownedSet(p); }
 
     function canClaim(r, c, p) {
-      const bases = [];
+      let ortho = 0;
       for (const [dr, dc] of ORTHO) {
         const nr = r + dr, nc = c + dc;
-        if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && grid[nr][nc] === p) bases.push([nr, nc]);
+        if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && grid[nr][nc] === p) ortho++;
       }
-      if (!bases.length) return false;
-      if (bases.length >= 2) return true;
-      if (countOwnNeighbors(r, c, p) >= 2) return true;
-      const [br, bc] = bases[0];
-      return countOwnNeighbors(br, bc, p) >= 2;
+      if (ortho < 1) return false;
+      return countOwnNeighbors(r, c, p) >= 2;
     }
 
     function captureCostAt(r, c) {
@@ -1004,7 +1000,7 @@
           return;
         }
         if (castles[k] && grid[r][c] >= 0 && grid[r][c] !== curP) showToast('Kale için 3 komşu kuşatma ve 2 hak gerekir');
-        else if (!canClaim(r, c, curP) && isAdjToSet(r, c, ownedSet(curP))) showToast('Yılan gibi uzayamazsın — önce cepheyi kalınlaştır');
+        else if (!canClaim(r, c, curP) && isAdjToSet(r, c, ownedSet(curP))) showToast('Yılan olmaz: en az 2 komşu kareye yaslan');
         else showToast('Sadece sınır kareler!');
         sfx('error');
         return;
